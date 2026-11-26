@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mosaico de emociones — prototipo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0b0b0d; --ink:#f3efe8; --muted:#a9a39a; --accent:#ffd27a; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { height:100%; background:var(--bg); color:var(--ink); font-family:Inter,system-ui,sans-serif; overflow:hidden; }
+
+  /* ---------- Mosaico ---------- */
+  #mosaic { position:fixed; inset:0; }
+  .tile { position:absolute; overflow:visible;
+          transition: left 1.4s cubic-bezier(.6,0,.2,1), top 1.4s cubic-bezier(.6,0,.2,1),
+                      width 1.4s cubic-bezier(.6,0,.2,1), height 1.4s cubic-bezier(.6,0,.2,1), transform 1.4s ease; }
+  .tile .float { position:absolute; inset:0; animation: drift var(--dur,14s) ease-in-out infinite alternate; }
+  @keyframes drift { from { transform:translate(0,0); } to { transform:translate(var(--dx,6px),var(--dy,-8px)); } }
+  .tile .img {
+    position:absolute; inset:0;
+    background-size:cover; background-position:center;
+    filter: saturate(.55) brightness(.62);
+    transition: filter 1.6s ease, transform 6s ease, -webkit-mask-image 1s, mask-image 1s;
+  }
+  /* bordes fundidos (layouts dispersos): un desvanecido corto en los 4 lados */
+  .soft .tile .img {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 9%, #000 91%, transparent),
+                        linear-gradient(to bottom, transparent, #000 9%, #000 91%, transparent);
+    -webkit-mask-composite: source-in;
+            mask-image: linear-gradient(to right, transparent, #000 9%, #000 91%, transparent),
+                        linear-gradient(to bottom, transparent, #000 9%, #000 91%, transparent);
+            mask-composite: intersect;
+  }
+  /* layout cuadrícula original: las fotos se sobreponen y se funden en elipse */
+  .grid .tile .img { inset:-6%;
+    -webkit-mask-image: radial-gradient(ellipse 62% 64% at 50% 50%, #000 62%, transparent 100%);
+            mask-image: radial-gradient(ellipse 62% 64% at 50% 50%, #000 62%, transparent 100%); }
+  .grid .tile .float { animation:none; }
+  /* hilo que une las fotos en orden narrativo */
+  #thread { position:fixed; inset:0; width:100%; height:100%; pointer-events:none; z-index:1; }
+  #thread path { fill:none; stroke:#ffffff30; stroke-width:1.2; stroke-dasharray:3 7; transition: d 1.4s cubic-bezier(.6,0,.2,1), opacity 1s; }
+  #thread circle { fill:#ffffff55; transition: cx 1.4s cubic-bezier(.6,0,.2,1), cy 1.4s cubic-bezier(.6,0,.2,1), r .6s, fill .6s; }
+  #thread circle.on { fill:var(--accent); }
+  .grid #thread, .no-thread #thread { opacity:0; }
+  .tile { z-index:2; }
+  .tile.active .img { filter:saturate(1.05) brightness(1); transform:scale(1.03); z-index:2; }
+  .tile.pending .img { filter:saturate(.8) brightness(.8); }
+  .tile .tag {
+    position:absolute; left:50%; bottom:9%; transform:translateX(-50%);
+    font-family:Fraunces,serif; font-weight:300; font-size:clamp(14px,1.6vw,26px); letter-spacing:.08em;
+    opacity:0; transition:opacity 1.2s; z-index:3; text-shadow:0 2px 12px #000a; pointer-events:none;
+  }
+  .tile.active .tag { opacity:.95; }
+  .ring { position:absolute; inset:18%; border-radius:50%; border:1px solid #fff4; z-index:3; pointer-events:none;
+          opacity:0; transform:scale(.6); transition:opacity .3s, transform var(--dwell,1200ms) linear; }
+  .tile.pending .ring { opacity:1; transform:scale(1); }
+
+  /* ---------- Punto de mirada ---------- */
+  #dot { position:fixed; width:26px; height:26px; margin:-13px 0 0 -13px; border-radius:50%;
+         border:2px solid var(--accent); background:#ffd27a33; z-index:50; pointer-events:none; display:none; }
+
+  /* ---------- Paneles ---------- */
+  .screen { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center;
+            background:radial-gradient(ellipse at center,#1a1714 0%,#0b0b0d 70%); }
+  .card { max-width:640px; padding:44px; text-align:left; }
+  h1 { font-family:Fraunces,serif; font-weight:300; font-size:44px; line-height:1.05; margin-bottom:18px; }
+  h1 em { color:var(--accent); font-style:italic; }
+  p { color:var(--muted); line-height:1.6; margin-bottom:14px; font-size:15px; }
+  .btns { display:flex; gap:12px; margin-top:26px; flex-wrap:wrap; }
+  button { font:500 14px Inter,sans-serif; padding:13px 22px; border-radius:999px; border:1px solid #fff3;
+           background:transparent; color:var(--ink); cursor:pointer; transition:background .2s; }
+  button.primary { background:var(--ink); color:#111; border-color:var(--ink); }
+  button:hover { background:#ffffff1a; } button.primary:hover { background:#fff; }
+  kbd { font:12px ui-monospace,monospace; border:1px solid #fff3; border-radius:4px; padding:1px 6px; color:var(--ink); }
+
+  /* calibración */
+  #calib { background:#0b0b0d; display:none; }
+  #calib .hint { position:absolute; top:70%; left:50%; transform:translate(-50%,-50%); text-align:center; max-width:460px; }
+  .cp { position:absolute; width:28px; height:28px; margin:-14px 0 0 -14px; border-radius:50%;
+        background:#ff5a4e; border:3px solid #fff; cursor:pointer; transition:background .2s, transform .1s; }
+  .cp:active { transform:scale(.85); }
+  .cp.done { background:#57d68d; pointer-events:none; }
+  .cp span { position:absolute; inset:-3px; border-radius:50%; }
+
+  /* barra de info */
+  #hud { position:fixed; left:18px; bottom:16px; z-index:60; font-size:12px; color:#fffa;
+         background:#0009; backdrop-filter:blur(6px); padding:10px 14px; border-radius:10px; line-height:1.6; }
+  #hud b { color:var(--ink); font-weight:500; }
+  #legend { position:fixed; right:18px; top:16px; z-index:60; width:320px; font-size:12.5px;
+            background:#0b0b0dd9; backdrop-filter:blur(8px); border:1px solid #fff1; border-radius:14px; padding:18px; display:none; }
+  #legend h3 { font-family:Fraunces,serif; font-weight:600; font-size:17px; margin-bottom:10px; }
+  #legend .row { padding:8px 0; border-top:1px solid #ffffff12; }
+  #legend .row b { display:block; font-weight:500; color:var(--ink); }
+  #legend .row span { color:var(--muted); }
+  .hidden-ui #hud, .hidden-ui #legend { display:none !important; }
+  /* video de la cámara centrado entre la fila superior y la central de puntos, para no tapar ninguno */
+  #webgazerVideoContainer { z-index:120 !important; top:30% !important; left:50% !important;
+                            transform:translate(-50%,-50%) scale(.8); border-radius:12px; overflow:hidden; }
+</style>
+</head>
+<body>
+
+<div id="mosaic"></div>
+<div id="dot"></div>
+
+<!-- Pantalla de inicio -->
+<div class="screen" id="intro">
+  <div class="card">
+    <h1>Lo que miras <em>es lo que sientes</em></h1>
+    <p>Un mosaico de seis emociones de un mismo protagonista. La cámara detecta hacia dónde miras y la música se transforma para acompañar esa emoción.</p>
+    <p>Prototipo con fotos y música de prueba. Usa audífonos, siéntate a unos 60 cm de la pantalla, con luz frontal y la cara visible.</p>
+    <div class="btns">
+      <button class="primary" id="btnGaze">Empezar con la mirada</button>
+      <button id="btnMouse">Probar con el mouse</button>
+    </div>
+    <p style="margin-top:22px;font-size:12.5px">Teclas: <kbd>I</kbd> leyenda · <kbd>G</kbd> punto de mirada · <kbd>C</kbd> recalibrar · <kbd>M</kbd> mirada/mouse · <kbd>L</kbd> cambiar composición · <kbd>T</kbd> hilo · <kbd>H</kbd> ocultar todo · <kbd>F</kbd> pantalla completa</p>
+  </div>
+</div>
+
+<!-- Calibración -->
+<div class="screen" id="calib">
+  <div class="hint" id="calibHint">
+    <h1 style="font-size:30px">Calibración</h1>
+    <p>Haz clic <b>5 veces</b> en cada punto rojo <b>mirándolo fijamente</b>. Se pondrá verde cuando esté listo.</p>
+    <p style="font-size:13px">Puedes salir en cualquier momento con <kbd>Esc</kbd> (se guarda lo calibrado).</p>
+    <div class="btns" style="justify-content:center;margin-top:10px"><button id="btnEndCalib">Terminar calibración</button></div>
+  </div>
+</div>
+
+<div id="hud"></div>
+<div id="legend"></div>
+
+<!-- WebGazer 3.5.3 incluido localmente (con su modelo en mediapipe/), funciona sin internet -->
+<script src="webgazer.js"></script>
+<script>
+/* =========================================================
+   CONFIGURACIÓN — cambia aquí fotos, música y textos
+   ========================================================= */
+const EMOTIONS = [
+  { id:'calma',     name:'Calma',     photo:'fotos/1-calma.jpg',     audio:'musica/calma.mp3',
+    music:'Pad ambient en La menor 9 → Fa maj7, campanas lejanas. Respiración lenta.' },
+  { id:'alegria',   name:'Alegría',   photo:'fotos/2-alegria.jpg',   audio:'musica/alegria.mp3',
+    music:'Arpegio brillante Do–Sol–Lam–Fa, pulso suave de bombo. Tonalidad mayor.' },
+  { id:'ansiedad',  name:'Ansiedad',  photo:'fotos/3-ansiedad.jpg',  audio:'musica/ansiedad.mp3',
+    music:'Dron grave en La con Si♭ disonante, tic-tac en semicorcheas, latido doble.' },
+  { id:'tristeza',  name:'Tristeza',  photo:'fotos/4-tristeza.jpg',  audio:'musica/tristeza.mp3',
+    music:'Piano escaso y descendente Lam–Fa–Rem–Mi, mucho silencio entre notas.' },
+  { id:'ira',       name:'Ira',       photo:'fotos/5-ira.jpg',       audio:'musica/ira.mp3',
+    music:'Bajo distorsionado en La con golpes de Si♭, bombo pesado en cada pulso.' },
+  { id:'esperanza', name:'Esperanza', photo:'fotos/6-esperanza.jpg', audio:'musica/esperanza.mp3',
+    music:'Progresión ascendente Fa–Do–Sol–Lam con brillo agudo que sube.' },
+];
+/* Composiciones: x, y, w, h en % de la pantalla; r = rotación en grados.
+   El orden de cada lista sigue el orden de EMOTIONS. Agrega o edita libremente. */
+const LAYOUTS = [
+  { name:'Constelación', soft:true, tiles:[
+    { x: 5, y: 7, w:24, h:31, r: 0 },   // calma
+    { x:35, y: 3, w:31, h:38, r: 0 },   // alegría (protagónica)
+    { x:72, y:11, w:20, h:35, r: 0 },   // ansiedad (vertical, apretada)
+    { x:10, y:50, w:17, h:25, r: 0 },   // tristeza (pequeña, aislada)
+    { x:33, y:50, w:26, h:42, r: 0 },   // ira
+    { x:64, y:55, w:31, h:36, r: 0 },   // esperanza
+  ]},
+  { name:'Deriva', soft:true, tiles:[
+    { x: 4, y: 6, w:22, h:29, r:-2   },
+    { x:21, y:44, w:20, h:27, r: 1.5 },
+    { x:38, y: 9, w:25, h:33, r: 1   },
+    { x:46, y:53, w:18, h:31, r:-1.5 },
+    { x:67, y: 7, w:22, h:37, r:-1   },
+    { x:70, y:55, w:25, h:35, r: 2   },
+  ]},
+  { name:'Archipiélago', soft:true, tiles:[
+    { x:41, y:33, w:19, h:28, r: 0 },   // calma al centro: todo parte de ahí
+    { x: 8, y: 6, w:27, h:34, r: 0 },
+    { x:66, y: 5, w:26, h:30, r: 0 },
+    { x: 6, y:56, w:24, h:34, r: 0 },
+    { x:68, y:46, w:20, h:43, r: 0 },
+    { x:35, y:69, w:28, h:27, r: 0 },
+  ]},
+  { name:'Cuadrícula', soft:false, grid:true, tiles:[0,1,2,3,4,5].map(i => ({ x:(i%3)*100/3, y:Math.floor(i/3)*50, w:100/3, h:50, r:0 })) },
+];
+let layoutIdx = +(localStorage.getItem('layoutIdx') || 0) % LAYOUTS.length;
+const DWELL_MS   = 1200;   // tiempo mirando una foto antes de cambiar la música
+const FADE_MS    = 2200;   // duración del crossfade
+const SMOOTH_N   = 12;     // lecturas promediadas
+const IDLE_MS    = 4000;   // sin mirada válida → todo baja a silencio suave
+const MAX_VOL    = 0.9;
+const BED_VOL    = 0.0;    // volumen de fondo de las capas no activas (sube a 0.05 si quieres una mezcla)
+
+/* =========================================================
+   Mosaico
+   ========================================================= */
+const mosaic = document.getElementById('mosaic');
+const tiles = EMOTIONS.map((e,i) => {
+  const t = document.createElement('div'); t.className='tile'; t.style.setProperty('--dwell', DWELL_MS+'ms');
+  t.innerHTML = `<div class="float" style="--dur:${11+i*1.7}s;--dx:${(i%2?-1:1)*(4+i)}px;--dy:${(i%3-1)*7}px">
+                   <div class="img" style="background-image:url('${e.photo}')"></div><div class="ring"></div><div class="tag">${e.name.toUpperCase()}</div></div>`;
+  mosaic.appendChild(t); return t;
+});
+
+/* hilo narrativo (SVG) */
+const svgNS = 'http://www.w3.org/2000/svg';
+const thread = document.createElementNS(svgNS,'svg'); thread.id = 'thread';
+const threadPath = document.createElementNS(svgNS,'path'); thread.appendChild(threadPath);
+const knots = EMOTIONS.map(() => { const c = document.createElementNS(svgNS,'circle'); c.setAttribute('r',3); thread.appendChild(c); return c; });
+mosaic.appendChild(thread);
+
+function applyLayout(idx, announce){
+  layoutIdx = idx; try { localStorage.setItem('layoutIdx', idx); } catch(e){}
+  const L = LAYOUTS[idx];
+  document.body.classList.toggle('grid', !!L.grid);
+  document.body.classList.toggle('soft', !!L.soft);
+  L.tiles.forEach((p,i) => {
+    const t = tiles[i]; if (!t) return;
+    Object.assign(t.style, { left:p.x+'vw', top:p.y+'vh', width:p.w+'vw', height:p.h+'vh', transform:`rotate(${p.r||0}deg)` });
+  });
+  drawThread();
+  if (announce) toast('Composición: ' + L.name);
+}
+function centers(){
+  return LAYOUTS[layoutIdx].tiles.map(p => [ (p.x + p.w/2) / 100 * innerWidth, (p.y + p.h/2) / 100 * innerHeight ]);
+}
+function drawThread(){
+  const c = centers(); thread.setAttribute('viewBox', `0 0 ${innerWidth} ${innerHeight}`);
+  // curva suave (Catmull-Rom → Bézier) que pasa por el centro de cada foto en orden narrativo
+  let d = `M${c[0][0]},${c[0][1]}`;
+  for (let i = 0; i < c.length - 1; i++) {
+    const p0 = c[i-1] || c[i], p1 = c[i], p2 = c[i+1], p3 = c[i+2] || p2;
+    d += ` C${p1[0]+(p2[0]-p0[0])/6},${p1[1]+(p2[1]-p0[1])/6} ${p2[0]-(p3[0]-p1[0])/6},${p2[1]-(p3[1]-p1[1])/6} ${p2[0]},${p2[1]}`;
+  }
+  threadPath.setAttribute('d', d);
+  c.forEach((p,i) => { knots[i].setAttribute('cx', p[0]); knots[i].setAttribute('cy', p[1]); });
+}
+addEventListener('resize', drawThread);
+document.getElementById('legend').innerHTML = '<h3>Emociones y música</h3>' +
+  EMOTIONS.map(e => `<div class="row"><b>${e.name}</b><span>${e.music}</span></div>`).join('') +
+  '<p style="margin:12px 0 0;font-size:11.5px">Todas las capas: 72 BPM, misma tonalidad (La menor / Do mayor), loops de 40 s sincronizados.</p>';
+
+/* =========================================================
+   Audio: todas las capas suenan sincronizadas; solo cambia el volumen
+   ========================================================= */
+const tracks = EMOTIONS.map(e => { const a = new Audio(e.audio); a.loop = true; a.preload='auto'; a.volume = 0; return a; });
+const target = tracks.map(() => 0);
+let audioStarted = false;
+async function startAudio(){
+  if (audioStarted) return; audioStarted = true;
+  await Promise.all(tracks.map(a => a.play().catch(()=>{})));
+  // re-sincroniza periódicamente por si algún loop se desfasa
+  setInterval(() => { const t0 = tracks[0].currentTime; tracks.forEach(a => { if (Math.abs(a.currentTime - t0) > 0.08) a.currentTime = t0; }); }, 5000);
+  let last = performance.now();
+  (function fade(now){
+    const step = (now - last) / FADE_MS; last = now;
+    tracks.forEach((a,i) => { const d = target[i] - a.volume; a.volume = Math.max(0, Math.min(1, a.volume + Math.sign(d) * Math.min(Math.abs(d), step * MAX_VOL))); });
+    requestAnimationFrame(fade);
+  })(last);
+}
+
+/* =========================================================
+   Lógica de zonas: suavizado + tiempo de permanencia
+   ========================================================= */
+let active = -1, candidate = -1, candidateSince = 0, lastValid = 0;
+const buf = [];
+/* La foto más cercana al punto de mirada (distancia al rectángulo, 0 si está dentro).
+   Así los espacios vacíos también cuentan: miras cerca de una foto y se activa. */
+function zoneAt(x,y){
+  if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return -1;
+  let best = -1, bestD = Infinity;
+  LAYOUTS[layoutIdx].tiles.forEach((p,i) => {
+    const l = p.x/100*innerWidth, t = p.y/100*innerHeight, r = l + p.w/100*innerWidth, b = t + p.h/100*innerHeight;
+    const dx = Math.max(l - x, 0, x - r), dy = Math.max(t - y, 0, y - b);
+    const d = Math.hypot(dx, dy);
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  return best;
+}
+function setActive(i){
+  active = i;
+  tiles.forEach((t,k) => t.classList.toggle('active', k === i));
+  knots.forEach((c,k) => { c.classList.toggle('on', k === i); c.setAttribute('r', k === i ? 5 : 3); });
+  target.forEach((_,k) => target[k] = k === i ? MAX_VOL : (i === -1 ? 0 : BED_VOL));
+  updateHud();
+}
+function onPoint(x,y){
+  const now = performance.now();
+  buf.push([x,y]); if (buf.length > SMOOTH_N) buf.shift();
+  const sx = buf.reduce((s,p)=>s+p[0],0)/buf.length, sy = buf.reduce((s,p)=>s+p[1],0)/buf.length;
+  if (showDot) { dot.style.left = sx+'px'; dot.style.top = sy+'px'; }
+  const z = zoneAt(sx,sy);
+  if (z === -1) return;
+  lastValid = now;
+  if (z === active) { candidate = -1; tiles.forEach(t=>t.classList.remove('pending')); return; }
+  if (z !== candidate) {
+    candidate = z; candidateSince = now;
+    tiles.forEach((t,k) => t.classList.toggle('pending', k === z));
+  } else if (now - candidateSince >= DWELL_MS) {
+    tiles[z].classList.remove('pending'); candidate = -1; setActive(z);
+  }
+}
+setInterval(() => { if (active !== -1 && performance.now() - lastValid > IDLE_MS) setActive(-1); }, 500);
+
+/* =========================================================
+   Modos: mirada (WebGazer) / mouse
+   ========================================================= */
+let mode = null, showDot = false, gazeReady = false;
+const dot = document.getElementById('dot');
+const hud = document.getElementById('hud');
+/* diagnóstico: cuántas predicciones válidas llegan por segundo */
+let gazeCount = 0, gazeRate = 0;
+setInterval(() => { gazeRate = gazeCount; gazeCount = 0; if (mode === 'gaze') updateHud(); }, 1000);
+function updateHud(){
+  const diag = mode === 'gaze'
+    ? (gazeRate > 0 ? ` · Seguimiento: <b style="color:#57d68d">${gazeRate}/s</b>` : ` · Seguimiento: <b style="color:#ff5a4e">sin datos (¿cara visible? ¿calibrado? pulsa C)</b>`)
+    : '';
+  hud.innerHTML = `Modo: <b>${mode === 'gaze' ? 'mirada' : 'mouse'}</b> · Emoción: <b>${active>=0 ? EMOTIONS[active].name : '—'}</b>${diag}<br>` +
+                  `<kbd>I</kbd> leyenda <kbd>G</kbd> punto <kbd>C</kbd> recalibrar <kbd>M</kbd> modo <kbd>L</kbd> composición <kbd>T</kbd> hilo <kbd>H</kbd> ocultar`;
+}
+function onMouse(e){ if (mode === 'mouse') onPoint(e.clientX, e.clientY); }
+addEventListener('mousemove', onMouse);
+
+async function startGaze(){
+  mode = 'gaze'; buf.length = 0;
+  if (!gazeReady) {
+    if (typeof webgazer === 'undefined') { alert('No se pudo cargar WebGazer (requiere internet). Usando el mouse.'); return startMouse(); }
+    webgazer.params.showVideoPreview = true;
+    await webgazer.setRegression('ridge')
+      .setGazeListener(d => {
+        if (d && Number.isFinite(d.x) && Number.isFinite(d.y)) { gazeCount++; if (mode === 'gaze') onPoint(d.x, d.y); }
+      })
+      .saveDataAcrossSessions(true)
+      .begin();
+    webgazer.showPredictionPoints(false);
+    gazeReady = true;
+    updateHud(); toast('Modo: mirada');
+    calibrate();                       // solo la primera vez; después se recalibra con C
+  } else {
+    await webgazer.resume();
+    updateHud(); toast('Modo: mirada');
+  }
+}
+function startMouse(){
+  mode = 'mouse'; buf.length = 0;
+  // si estaba calibrando, cerrar la calibración y el video
+  document.getElementById('calib').style.display = 'none';
+  if (gazeReady) { webgazer.showVideoPreview(false); webgazer.pause(); }
+  updateHud(); toast('Modo: mouse');
+}
+function toast(msg){
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast';
+    t.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:200;background:#000c;color:#fff;padding:10px 18px;border-radius:999px;font-size:14px;transition:opacity .4s;pointer-events:none';
+    document.body.appendChild(t); }
+  t.textContent = msg; t.style.opacity = 1; clearTimeout(t._h); t._h = setTimeout(() => t.style.opacity = 0, 1400);
+}
+
+/* Calibración de 9 puntos */
+function calibrate(){
+  const scr = document.getElementById('calib'); scr.style.display = 'flex';
+  webgazer.clearData();              // cada calibración empieza de cero (evita datos viejos corruptos)
+  webgazer.showVideoPreview(true);
+  scr.querySelectorAll('.cp').forEach(n => n.remove());
+  const pos = [10,50,90]; let done = 0;
+  pos.forEach(py => pos.forEach(px => {
+    const p = document.createElement('div'); p.className='cp'; p.style.left=px+'%'; p.style.top=py+'%';
+    let clicks = 0;
+    p.onclick = () => {
+      clicks++; p.style.opacity = 0.35 + clicks*0.13;
+      if (clicks >= 5) { p.classList.add('done'); p.style.opacity = 1; if (++done === 9) finishCalib(); }
+    };
+    scr.appendChild(p);
+  }));
+}
+function finishCalib(){
+  document.getElementById('calib').style.display = 'none';
+  webgazer.showVideoPreview(false);
+  updateHud();
+}
+
+document.getElementById('btnEndCalib').onclick = finishCalib;
+document.getElementById('btnGaze').onclick = async () => { document.getElementById('intro').style.display='none'; await startAudio(); startGaze(); };
+document.getElementById('btnMouse').onclick = async () => { document.getElementById('intro').style.display='none'; await startAudio(); startMouse(); };
+
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === 'escape' && document.getElementById('calib').style.display === 'flex') { finishCalib(); return; }
+  if (k === 'i') { const l = document.getElementById('legend'); l.style.display = l.style.display === 'block' ? 'none' : 'block'; }
+  if (k === 'g') { showDot = !showDot; dot.style.display = showDot ? 'block' : 'none'; }
+  if (k === 'c') { if (mode !== 'gaze') { startGaze().then(() => calibrate()); } else calibrate(); }
+  if (k === 'm' && mode) { mode === 'gaze' ? startMouse() : startGaze(); }
+  if (k === 'h') document.body.classList.toggle('hidden-ui');
+  if (k === 'l') applyLayout((layoutIdx + 1) % LAYOUTS.length, true);
+  if (k === 't') { document.body.classList.toggle('no-thread'); toast(document.body.classList.contains('no-thread') ? 'Hilo oculto' : 'Hilo visible'); }
+  if (k === 'f') { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); }
+});
+applyLayout(layoutIdx);
+updateHud();
+</script>
+</body>
+</html>
